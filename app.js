@@ -44,7 +44,7 @@ async function analyzeItem(it){
  if(/^https?:\/\/\S+$/i.test(sourceText(it).trim())){it.aiError='链接已保存，请编辑资料并补充网页正文后再整理。';persist();render();return;}
  const revision=workspaceRevision,content=sourceText(it);analyzing.add(it.id);it.parsing=true;it.aiError='';persist();render();
  try{
-  const r=await api('analyze',{text:content,source:it.source||'',categories:CLUSTERS.map(c=>c.n)});
+  const r=await api('analyze',{text:content,source:it.attachment?'附件：'+it.attachment.name:(it.source||''),categories:CLUSTERS.map(c=>c.n)});
   if(revision!==workspaceRevision||!ITEMS.includes(it)||sourceText(it)!==content)return;
   Object.assign(it,{t:r.title,one:r.summary,pts:r.points,core:r.core,data:r.data,quote:r.quote,ref:r.ref,type:r.type,tags:r.tags,suggestedCategory:r.category,aiGenerated:true});
   toast('AI 已完成整理；原始内容已保留，请核对后确认归属。');
@@ -59,7 +59,38 @@ function addNote(text){
  if(!persist()){toast('内容暂留在当前页面；请立即导出备份。');}
  return it;
 }
-saveNote=function(){const el=$('#ct'),text=el?.value.trim();if(!text)return toast('请先输入内容。');if(text.length>20000)return toast('正文最多 20000 字，请分段保存。');const it=addNote(text);$('#composer').classList.remove('on');go('#/inbox');analyzeItem(it);};
+let attachmentDraft=null,attachmentBusy=false,composerGeneration=0;
+const originalComposer=openComposer;
+openComposer=function(){
+ composerGeneration++;attachmentDraft=null;attachmentBusy=false;originalComposer();
+ const button=$('#composer [data-toast]');if(button){button.removeAttribute('data-toast');button.dataset.live='attach';}
+ $('#ct').insertAdjacentHTML('afterend','<p id="attachment-status" role="status" style="font-size:12px;line-height:1.7;color:var(--ink-2)">可附 PDF、DOCX、TXT、MD、CSV 或图片，单个不超过 3 MB。解析后请核对正文再保存。图片会发送至 AI 服务识别；原文件不长期保存。</p><input id="attachment-input" type="file" accept=".pdf,.docx,.txt,.md,.csv,.png,.jpg,.jpeg,.webp" hidden>');
+};
+async function importAttachment(file){
+ if(attachmentBusy)return;
+ const generation=composerGeneration,field=$('#ct'),before=field.value,status=$('#attachment-status');
+ if(!file.size||file.size>3000000){status.textContent='请选择不超过 3 MB 的非空文件。';return;}
+ if(before.trim()&&!confirm('解析成功后会替换当前输入框内容，是否继续？'))return;
+ attachmentBusy=true;status.textContent='正在解析 '+file.name+'，请稍候…';
+ const saveButton=$('#composer [data-comp="save"]'),attachButton=$('#composer [data-live="attach"]');
+ if(saveButton)saveButton.disabled=true;if(attachButton)attachButton.disabled=true;
+ try{
+  const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=()=>reject(Error('无法读取文件，请重新选择。'));reader.readAsDataURL(file);});
+  const result=await api('upload',{name:file.name,data});
+  if(generation!==composerGeneration||!$('#composer').classList.contains('on'))return;
+  if(field.value!==before){status.textContent='解析已完成，但你已修改正文；为保留修改，请重新选择附件。';return;}
+  field.value=result.text;attachmentDraft={name:result.name,bytes:result.bytes,pages:result.pages,method:result.method};
+  status.textContent='已解析：'+result.name+(result.pages?' · '+result.pages+' 页':'')+' · '+result.text.length+' 字。'+(result.method==='ocr'?'图片识别可能有误，请逐字核对。':'请核对正文、段落和表格顺序。')+' 点击“存”后保存正文并生成 AI 摘要。';
+ }catch(error){if(generation===composerGeneration)status.textContent=error.message+' 当前正文未被替换。';}
+ finally{if(generation===composerGeneration){attachmentBusy=false;if(saveButton)saveButton.disabled=false;if(attachButton)attachButton.disabled=false;}}
+}
+saveNote=function(){
+ if(attachmentBusy)return toast('附件正在解析，请稍候。');
+ const text=$('#ct')?.value.trim();if(!text)return toast('请先输入内容或选择附件。');if(text.length>20000)return toast('正文最多 20000 字，请分段保存。');
+ const it=addNote(text);if(attachmentDraft){it.attachment={...attachmentDraft};it.srcName='附件 · '+attachmentDraft.name;it.ref='附件：'+attachmentDraft.name;it.source='';persist();}
+ $('#composer').classList.remove('on');go('#/inbox');analyzeItem(it);
+};
+document.addEventListener('change',e=>{if(e.target.id==='attachment-input'){const file=e.target.files?.[0];e.target.value='';if(file)importAttachment(file);}});
 
 const originalRender=render;
 render=function(){
@@ -76,6 +107,7 @@ render=function(){
  }
  if(S.route==='detail'){
   const it=byId(S.id);if(!it)return;
+  if(it.attachment)view.insertAdjacentHTML('afterbegin',`<p style="font-size:12px">附件：${esc(it.attachment.name)} · 已保留解析正文；原文件未存储。${it.attachment.method==='ocr'?'图片识别结果请核对原图。':''}</p>`);
   view.insertAdjacentHTML('afterbegin',`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"><button class="btn sm" data-live="edit">编辑资料</button><button class="btn sm" data-live="analyze" ${analyzing.has(it.id)?'disabled':''}>${it.parsing?'AI 整理中…':'AI 重新整理'}</button><button class="btn sm" data-live="proposals">AI 提案</button><button class="btn sm" data-live="related">AI 查找关联</button>${it.source?`<a class="btn sm" target="_blank" rel="noopener noreferrer" href="${esc(safeURL(it.source))}">打开来源链接</a>`:''}</div><p style="font-size:12px;color:var(--ink-2)">${it.demo?'示例资料，未经外部核验。 ':''}${it.aiGenerated?'摘要与核心结论包含 AI 改写；原句须核对原文。 ':''}${esc((it.tags||[]).join(' · '))}</p>${it.aiError?`<p role="alert" style="color:var(--danger)">${esc(it.aiError)}</p>`:''}`);
  }
 };
@@ -214,6 +246,7 @@ document.addEventListener('click',async e=>{
  if(e.target.closest('[data-coll],[data-rm],[data-kind],[data-act="to-coll"]')){composeResult=null;setTimeout(persist,0);}
  if(!live)return;e.stopImmediatePropagation();
  switch(live.dataset.live){
+  case 'attach':$('#attachment-input')?.click();break;
   case 'edit':editItem();break;
   case 'save-edit':saveEdit(+live.dataset.item);break;
   case 'analyze':analyzeItem(byId(S.id));break;

@@ -84,16 +84,16 @@ function send(res,status,data,type='application/json; charset=utf-8'){
  res.writeHead(status,{'Content-Type':type,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'same-origin','Content-Security-Policy':"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'"});
  res.end(type.startsWith('application/json')?JSON.stringify(data):data);
 }
-async function json(req){
+async function json(req,maxBytes=350000){
  if(!req.headers['content-type']?.startsWith('application/json'))throw new HttpError(415,'请发送 JSON 数据。');
  // Vercel 会预先解析请求正文；本地 HTTP 服务仍读取流。
  if(req.body!==undefined){
   const raw=typeof req.body==='string'?req.body:JSON.stringify(req.body);
-  if(Buffer.byteLength(raw)>350000)throw new HttpError(413,'请求内容过大。');
+  if(Buffer.byteLength(raw)>maxBytes)throw new HttpError(413,'请求内容过大。');
   try{return JSON.parse(raw);}catch{throw new HttpError(400,'JSON 格式错误。');}
  }
  let size=0,chunks=[];
- for await(const chunk of req){size+=chunk.length;if(size>350000)throw new HttpError(413,'请求内容过大。');chunks.push(chunk);}
+ for await(const chunk of req){size+=chunk.length;if(size>maxBytes)throw new HttpError(413,'请求内容过大。');chunks.push(chunk);}
  try{return JSON.parse(Buffer.concat(chunks).toString());}catch{throw new HttpError(400,'JSON 格式错误。');}
 }
 export function createServer(config=process.env,fetcher=fetch){
@@ -104,7 +104,7 @@ export function createServer(config=process.env,fetcher=fetch){
    if(req.method==='GET'&&pathname==='/api/health')return send(res,200,{ok:true,aiConfigured:Boolean(config.AI_API_KEY&&config.AI_BASE_URL&&config.AI_MODEL),accessCodeRequired:Boolean(config.APP_ACCESS_CODE)});
    const assets={'/':['index.html','text/html; charset=utf-8'],'/index.html':['index.html','text/html; charset=utf-8'],'/app.js':['app.js','text/javascript; charset=utf-8']};
    if(req.method==='GET'&&assets[pathname]){const [file,type]=assets[pathname];return send(res,200,await fs.readFile(path.join(root,file)),type);}
-   if(req.method!=='POST'||!/^\/api\/(analyze|chat|proposals|related|compose)$/.test(pathname))throw new HttpError(404,'页面不存在。');
+   if(req.method!=='POST'||!/^\/api\/(upload|analyze|chat|proposals|related|compose)$/.test(pathname))throw new HttpError(404,'页面不存在。');
    const origin=req.headers.origin;
    if(origin){const u=new URL(origin);if(u.host!==req.headers.host)throw new HttpError(403,'请从本站页面发起请求。');}
    if(config.APP_ACCESS_CODE){const a=Buffer.from(req.headers['x-access-code']||''),b=Buffer.from(config.APP_ACCESS_CODE);if(a.length!==b.length||!timingSafeEqual(a,b))throw new HttpError(401,'请输入正确的体验码。');}
@@ -114,9 +114,12 @@ export function createServer(config=process.env,fetcher=fetch){
    const rate=rates.get(ip)||{start:now,count:0};
    if(++rate.count>Number(config.AI_RATE_PER_MINUTE||10))throw new HttpError(429,'请求较频繁，请一分钟后再试。');
    rates.set(ip,rate);
-   const body=await json(req),kind=pathname.split('/').pop(),task=prepareTask(kind,body);
+   const kind=pathname.split('/').pop(),body=await json(req,kind==='upload'?4100000:350000);
    if(active>=Number(config.AI_MAX_CONCURRENT||4))throw new HttpError(429,'当前使用人数较多，请稍后再试。');
-   active++;try{const result=normalize(kind,await callAI(task,config,fetcher),body);return send(res,200,{ok:true,result});}finally{active--;}
+   active++;try{
+    const result=kind==='upload'?await (await import('./attachments.mjs')).parseAttachment(body,config,fetcher):normalize(kind,await callAI(prepareTask(kind,body),config,fetcher),body);
+    return send(res,200,{ok:true,result});
+   }finally{active--;}
   }catch(e){return send(res,e.status||500,{ok:false,error:e.status?e.message:'处理失败，请稍后重试。'});}
  });
 }

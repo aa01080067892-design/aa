@@ -1,5 +1,21 @@
 {
-  "name": "shiye-ai", "version": "1.0.0", "private": true, "type": "module",
-  "engines": { "node": ">=22" },
-  "scripts": { "start": "node --env-file-if-exists=.env server.mjs", "test": "node --test test/*.test.mjs" }
+  "name": "shiye-ai",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "prestart": "node build.mjs",
+    "start": "node --env-file-if-exists=.env server.mjs",
+    "pretest": "node build.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "fflate": "0.8.2",
+    "mammoth": "1.11.0",
+    "pdfjs-dist": "5.6.205",
+    "unpdf": "1.6.0"
+  }
 }

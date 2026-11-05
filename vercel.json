@@ -2,7 +2,7 @@
   "framework": null,
   "buildCommand": "node build.mjs",
   "outputDirectory": "public",
-  "functions": {"api/handler.mjs": {"maxDuration": 60}},
+  "functions": {"api/handler.mjs": {"maxDuration": 60,"includeFiles":"pdf-assets/**"}},
   "rewrites": [{"source": "/api/:path*", "destination": "/api/handler?route=:path*"}],
   "headers": [{"source": "/(.*)", "headers": [
     {"key": "X-Content-Type-Options", "value": "nosniff"},
