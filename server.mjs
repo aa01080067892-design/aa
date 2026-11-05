@@ -86,6 +86,12 @@ function send(res,status,data,type='application/json; charset=utf-8'){
 }
 async function json(req){
  if(!req.headers['content-type']?.startsWith('application/json'))throw new HttpError(415,'请发送 JSON 数据。');
+ // Vercel 会预先解析请求正文；本地 HTTP 服务仍读取流。
+ if(req.body!==undefined){
+  const raw=typeof req.body==='string'?req.body:JSON.stringify(req.body);
+  if(Buffer.byteLength(raw)>350000)throw new HttpError(413,'请求内容过大。');
+  try{return JSON.parse(raw);}catch{throw new HttpError(400,'JSON 格式错误。');}
+ }
  let size=0,chunks=[];
  for await(const chunk of req){size+=chunk.length;if(size>350000)throw new HttpError(413,'请求内容过大。');chunks.push(chunk);}
  try{return JSON.parse(Buffer.concat(chunks).toString());}catch{throw new HttpError(400,'JSON 格式错误。');}
