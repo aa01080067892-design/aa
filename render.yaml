@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: shiye-ai
+    runtime: node
+    plan: free
+    buildCommand: node --check server.mjs
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: AI_BASE_URL
+        value: https://sub2api.izhe.top/v1
+      - key: AI_API_KEY
+        sync: false
+      - key: AI_MODEL
+        value: gpt-6-sol
+      - key: AI_API_MODE
+        value: responses
