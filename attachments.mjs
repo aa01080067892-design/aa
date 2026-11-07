@@ -10,13 +10,16 @@ function checkedText(value){
 export async function parseAttachment(body,config={},fetcher=fetch){
  const name=typeof body?.name==='string'?body.name.replace(/[\x00-\x1f]/g,'').slice(0,180):'';
  const ext=name.split('.').pop().toLowerCase();
- if(!['pdf','docx','txt','md','csv','png','jpg','jpeg','webp'].includes(ext))fail('支持 PDF、DOCX、TXT、Markdown、CSV、PNG、JPG 和 WebP；旧版 DOC 请另存为 DOCX。');
+ if(!['pptx','pdf','docx','txt','md','csv','png','jpg','jpeg','webp'].includes(ext))fail('支持 PPTX、PDF、DOCX、TXT、Markdown、CSV、PNG、JPG 和 WebP；旧版 PPT、DOC 请另存为 PPTX、DOCX。');
  const encoded=body?.data;
  if(typeof encoded!=='string'||!encoded.length||encoded.length>4000000||encoded.length%4!==0||!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded))fail('附件数据无效或超过 3 MB。',413);
  const buffer=Buffer.from(encoded,'base64');
  if(!buffer.length||buffer.length>MAX_BYTES)fail('请选择不超过 3 MB 的非空附件。',413);
- let text,pages=null,method='text';
- if(ext==='pdf'){
+ let text,pages=null,method='text',warnings=[];
+ if(ext==='pptx'){
+  const {parsePptx}=await import('./pptx.mjs');
+  ({text,pages,method,warnings}=parsePptx(buffer));
+ }else if(ext==='pdf'){
   if(!buffer.subarray(0,5).equals(Buffer.from('%PDF-')))fail('文件不是有效 PDF，请重新导出。');
   let pdf;
   try{
@@ -53,7 +56,7 @@ export async function parseAttachment(body,config={},fetcher=fetch){
   try{text=new TextDecoder('utf-8',{fatal:true}).decode(buffer);}catch{text=new TextDecoder('gb18030').decode(buffer);}
   if(/[\x01-\x08\x0e-\x1f]/.test(text))fail('文件包含二进制内容，请上传纯文本文件。');
  }
- return {name,text:checkedText(text),pages,method,bytes:buffer.length};
+ return {name,text:checkedText(text),pages,method,bytes:buffer.length,warnings};
 }
 async function recognizeImage(buffer,mime,config,fetcher){
  if(!config.AI_API_KEY||!config.AI_MODEL||!config.AI_BASE_URL)fail('图片识别需要管理员配置 AI 接口。',503);
