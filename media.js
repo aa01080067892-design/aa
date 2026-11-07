@@ -4,9 +4,9 @@ const MediaFiles=(()=>{
  let speech;
  const stamp=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
  const isMedia=(ext,type='')=>AUDIO.includes(ext)||VIDEO.includes(ext)||/^(audio|video)\//.test(type);
- function parseDocument(blob,name){return new Promise((resolve,reject)=>{
+ async function parseDocument(blob,name){if(/\.pdf$/i.test(name)){const {parsePDF}=await import('/pdf-parser.js');return parsePDF(blob,name);}return new Promise((resolve,reject)=>{
   const worker=new Worker('/document-worker.js',{type:'module'}),timer=setTimeout(()=>{worker.terminate();reject(Error('文件解析超时，请拆分后重试。'));},120000);
-  const done=()=>{clearTimeout(timer);worker.terminate();};worker.onmessage=({data})=>{done();data.error?reject(Error(data.error)):resolve(data.result);};worker.onerror=()=>{done();reject(Error('本机解析组件加载失败，请刷新后重试。'));};blob.arrayBuffer().then(bytes=>worker.postMessage({name,bytes},[bytes])).catch(e=>{done();reject(e);});
+  const done=()=>{clearTimeout(timer);worker.terminate();};worker.onmessage=({data})=>{if(!data.result&&!data.error)return;done();data.error?reject(Error(data.error)):resolve(data.result);};worker.onerror=()=>{done();reject(Error('本机解析组件加载失败，请刷新后重试。'));};blob.arrayBuffer().then(bytes=>worker.postMessage({name,bytes},[bytes])).catch(e=>{done();reject(e);});
  });}
  async function transcribe(blob,progress){
   progress('正在本机解码音轨…');
