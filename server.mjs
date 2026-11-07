@@ -83,7 +83,7 @@ export async function callAI(task,config,fetcher=fetch){
  try{return JSON.parse(String(text).replace(/^\s*```(?:json)?\s*/i,'').replace(/\s*```\s*$/,''));}catch{throw new HttpError(502,'AI 输出格式不正确，请重试或检查模型是否支持 JSON 指令。');}
 }
 function send(res,status,data,type='application/json; charset=utf-8'){
- res.writeHead(status,{'Content-Type':type,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'same-origin','Content-Security-Policy':"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'"});
+ res.writeHead(status,{'Content-Type':type,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'same-origin','Content-Security-Policy':"default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; worker-src 'self' blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://cdn.jsdelivr.net https://huggingface.co https://*.huggingface.co https://*.hf.co; font-src 'self'; frame-ancestors 'none'; base-uri 'self'"});
  res.end(type.startsWith('application/json')?JSON.stringify(data):data);
 }
 async function json(req,maxBytes=350000){
@@ -103,8 +103,9 @@ export function createServer(config=process.env,fetcher=fetch){
  return http.createServer(async(req,res)=>{
   try{
    const pathname=new URL(req.url,'http://localhost').pathname;
+   if(req.method==='GET'&&/^\/cmaps\/[A-Za-z0-9_-]+\.bcmap$/.test(pathname))return send(res,200,await fs.readFile(path.join(root,'public',pathname)),'application/octet-stream');
    if(req.method==='GET'&&pathname==='/api/health')return send(res,200,{ok:true,aiConfigured:Boolean(config.AI_API_KEY&&config.AI_BASE_URL&&config.AI_MODEL),accessCodeRequired:Boolean(config.APP_ACCESS_CODE)});
-   const assets={'/':['index.html','text/html; charset=utf-8'],'/index.html':['index.html','text/html; charset=utf-8'],'/app.js':['app.js','text/javascript; charset=utf-8'],'/reliability.js':['reliability.js','text/javascript; charset=utf-8'],'/live.js':['live.js','text/javascript; charset=utf-8']};
+   const assets={'/':['index.html','text/html; charset=utf-8'],'/index.html':['index.html','text/html; charset=utf-8'],'/app.js':['app.js','text/javascript; charset=utf-8'],'/reliability.js':['reliability.js','text/javascript; charset=utf-8'],'/live.js':['live.js','text/javascript; charset=utf-8'],'/media.js':['media.js','text/javascript; charset=utf-8'],'/document-worker.js':['public/document-worker.js','text/javascript; charset=utf-8'],'/pdf.worker.min.mjs':['public/pdf.worker.min.mjs','text/javascript; charset=utf-8']};
    if(req.method==='GET'&&assets[pathname]){const [file,type]=assets[pathname];return send(res,200,await fs.readFile(path.join(root,file)),type);}
    if(req.method!=='POST'||!/^\/api\/(upload|analyze|chat|proposals|related|compose)$/.test(pathname))throw new HttpError(404,'页面不存在。');
    const origin=req.headers.origin;

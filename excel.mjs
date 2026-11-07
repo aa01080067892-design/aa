@@ -1,5 +1,6 @@
 import {unzipSync} from 'fflate';
 import XLSX from 'xlsx';
+import {Buffer} from 'buffer';
 
 function fail(message,status=400){const e=new Error(message);e.status=status;throw e;}
 const MAX_TEXT=20000,MAX_SHEETS=40,MAX_CELLS=20000;
@@ -13,7 +14,7 @@ function checkContainer(buffer,ext){
  let size=0,count=0,workbook=false;const names=new Set();
  unzipSync(buffer,{filter:e=>{
   size+=e.originalSize;count++;
-  if(size>20000000||count>2000)fail('Excel 解压内容过大，请减少工作表、图片或拆分文件。',413);
+  if(size>80000000||count>2000)fail('Excel 解压内容过大，请减少工作表、图片或拆分文件。',413);
   if(names.has(e.name))fail('Excel 包含重复文件记录，请重新另存为 XLSX。');names.add(e.name);
   if(e.name==='xl/workbook.xml')workbook=true;
   if(/(?:^|\/)vbaProject\.bin$/i.test(e.name))fail('暂不支持含宏的工作簿，请另存为不含宏的 XLSX。');

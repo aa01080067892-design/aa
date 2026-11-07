@@ -31,7 +31,7 @@ export function parsePptx(buffer){
   let total=0,count=0;const names=new Set();
   const files=unzipSync(buffer,{filter:e=>{
    total+=e.originalSize;count++;
-   if(total>20000000||count>2000)fail('PPTX 解压内容过大，请精简图片或拆分文件。',413);
+   if(total>80000000||count>2000)fail('PPTX 解压内容过大，请精简图片或拆分文件。',413);
    if(names.has(e.name))fail('PPTX 含重复文件记录，请重新导出。');names.add(e.name);
    return /^ppt\/(presentation\.xml|_rels\/presentation\.xml\.rels|slides\/(slide\d+\.xml|_rels\/slide\d+\.xml\.rels)|notesSlides\/notesSlide\d+\.xml)$/.test(e.name);
   }});

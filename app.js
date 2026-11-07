@@ -22,11 +22,19 @@ async function liveParseAttachment(n){
  if(!/^(image|file)-pending$/.test(n.captureState))return;
  const record=await getAttachment(n.attachment?.id);if(!record)throw Error('找不到原始附件，请重新添加原件或补充正文。');
  const ext=record.name.split('.').pop().toLowerCase();
- if(!['xlsx','xls','pptx','pdf','docx','png','jpg','jpeg','webp','txt','md','csv'].includes(ext)||record.blob.size>3000000)throw Error('原件已保留。在线解析支持 3 MB 内 XLSX、XLS、PPTX、PDF、DOCX、TXT、MD、CSV、PNG、JPG、WebP，请补充正文或拆分文件。');
- n.captureNote='正在重新解析原附件…';
- const parsed=await liveAPI('upload',{name:record.name,data:String(await blobDataURL(record.blob)).split(',')[1]});
+ if(record.blob.size>40*1048576)throw Error('单个文件最多 40 MB，请拆分。');
+ const progress=message=>{n.captureNote=message;if(S.modal==='detail'&&S.detail===n.id)renderDetail();};
+ progress('正在读取原附件…');let parsed;
+ if(['xlsx','xls','pptx','pdf','docx'].includes(ext)||MediaFiles.isMedia(ext,record.blob.type)){
+  parsed=await MediaFiles.parse(record.blob,record.name,record.blob.type,progress,liveAPI);
+ }else if(['png','jpg','jpeg','webp'].includes(ext)){
+  const image=await createImageBitmap(record.blob);let blob;
+  try{const scale=Math.min(1,1800/Math.max(image.width,image.height)),canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(image.width*scale));canvas.height=Math.max(1,Math.round(image.height*scale));canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height);blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.82));}finally{image.close();}
+  if(!blob||blob.size>3000000)throw Error('图片压缩后仍过大，请缩小图片。');
+  parsed=await liveAPI('upload',{name:'image.jpg',data:String(await blobDataURL(blob)).split(',')[1]});
+ }else throw Error('此文件格式暂不支持分析，原件已保留。');
  if(note(n.id)!==n)throw Error('资料已修改或移除，解析结果未覆盖新内容。');
- n.body=parsed.text;n.attachmentAnalysis={method:parsed.method,pages:parsed.pages,sheets:parsed.sheets,warnings:parsed.warnings||[]};n.captureState='text-ready';n.captureNote='正文已提取，原附件仍保留。';save();
+ n.body=parsed.text;n.attachmentAnalysis={method:parsed.method,pages:parsed.pages,sheets:parsed.sheets,duration:parsed.duration,frames:parsed.frames,warnings:parsed.warnings||[]};n.captureState='text-ready';n.captureNote='正文已提取，原附件仍保留。';save();
 }
 async function liveAnalyze(n){
  if(liveJobs.has(n.id))return liveJobs.get(n.id);
@@ -85,10 +93,12 @@ intakeAutoOrganize=async function(){
   V.review=null;V.skipped.clear();toast('已归档 '+valid.length+' 条'+(failed?'，'+failed+' 条保留待处理，可在详情重试':'')+'。',valid.length>0);
  }catch(error){toast(error.message);}finally{IntakeUI.busy=false;liveProgress='';render();}
 };
+let liveMediaURL;
 const liveDetailBefore=renderDetail;
-renderDetail=function(){liveDetailBefore();const n=note(S.detail),article=$('#overlay .detailmain');if(!n||!article)return;
+renderDetail=function(){if(liveMediaURL){URL.revokeObjectURL(liveMediaURL);liveMediaURL=null;}liveDetailBefore();const n=note(S.detail),article=$('#overlay .detailmain');if(!n||!article)return;
  const section=document.createElement('section');section.className='detailsection';
- section.innerHTML=`<button class="btn small" data-live-analyze="${esc(n.id)}" ${liveJobs.has(n.id)?'disabled':''}>${/^(image|file)-pending$/.test(n.captureState)?'重新解析附件并整理':liveJobs.has(n.id)?'AI 整理中…':'AI 重新整理'}</button><p class="helptext">${esc(n.aiError||n.captureNote||(n.aiState==='done'?'AI 已生成摘要与标签，请核对原文。':'原文已保存，可使用 AI 生成摘要与分类建议。'))}</p>${n.attachmentAnalysis?.method==='excel'?`<p class="helptext">Excel 已提取 ${n.attachmentAnalysis.sheets?.length||0} 个工作表。${esc((n.attachmentAnalysis.warnings||[]).join(' '))}</p>`:''}${n.attachmentAnalysis?.method==='pptx'?`<p class="helptext">PPTX 已提取 ${Number(n.attachmentAnalysis.pages)||0} 页。${esc((n.attachmentAnalysis.warnings||[]).join(' '))}</p>`:''}${n.aiSuggestionPending&&n.aiSuggestion?`<form class="live-ai-suggestion" data-live-apply="${esc(n.id)}"><strong>新分析建议 · 采用前保留现有内容</strong>${['title','summary','tags'].map(key=>`<label class="formfield"><span><input type="checkbox" name="${key}">采用${{title:'标题',summary:'摘要',tags:'标签'}[key]}</span><span>${esc(key==='tags'?n.aiSuggestion.tags.join('，'):n.aiSuggestion[key])}</span></label>`).join('')}<button class="btn small" type="submit">采用所选建议</button></form>`:''}`;article.prepend(section);
+ section.innerHTML=`<button class="btn small" data-live-analyze="${esc(n.id)}" ${liveJobs.has(n.id)?'disabled':''}>${/^(image|file)-pending$/.test(n.captureState)?'重新解析附件并整理':liveJobs.has(n.id)?'AI 整理中…':'AI 重新整理'}</button><p class="helptext">${esc(n.aiError||n.captureNote||(n.aiState==='done'?'AI 已生成摘要与标签，请核对原文。':'原文已保存，可使用 AI 生成摘要与分类建议。'))}</p>${['audio','video'].includes(n.attachmentAnalysis?.method)?`<p class="helptext">${n.attachmentAnalysis.method==='video'?'视频抽样与语音':'音频转写'} · ${Math.round(n.attachmentAnalysis.duration||0)} 秒。${esc((n.attachmentAnalysis.warnings||[]).join(' '))}</p>`:''}${n.attachmentAnalysis?.method==='excel'?`<p class="helptext">Excel 已提取 ${n.attachmentAnalysis.sheets?.length||0} 个工作表。${esc((n.attachmentAnalysis.warnings||[]).join(' '))}</p>`:''}${n.attachmentAnalysis?.method==='pptx'?`<p class="helptext">PPTX 已提取 ${Number(n.attachmentAnalysis.pages)||0} 页。${esc((n.attachmentAnalysis.warnings||[]).join(' '))}</p>`:''}${n.aiSuggestionPending&&n.aiSuggestion?`<form class="live-ai-suggestion" data-live-apply="${esc(n.id)}"><strong>新分析建议 · 采用前保留现有内容</strong>${['title','summary','tags'].map(key=>`<label class="formfield"><span><input type="checkbox" name="${key}">采用${{title:'标题',summary:'摘要',tags:'标签'}[key]}</span><span>${esc(key==='tags'?n.aiSuggestion.tags.join('，'):n.aiSuggestion[key])}</span></label>`).join('')}<button class="btn small" type="submit">采用所选建议</button></form>`:''}`;article.prepend(section);
+ if(n.attachment&&MediaFiles.isMedia(n.attachment.name.split('.').pop().toLowerCase(),n.attachment.type)){const id=n.id;getAttachment(n.attachment.id).then(record=>{if(!record||S.detail!==id||!section.isConnected)return;const video=n.attachment.type?.startsWith('video/')||/\.(mp4|mov|m4v|webm)$/i.test(n.attachment.name);const player=document.createElement(video?'video':'audio');player.controls=true;player.preload='metadata';player.style.cssText='width:100%;max-height:320px;margin-top:12px';liveMediaURL=URL.createObjectURL(record.blob);player.src=liveMediaURL;section.append(player);});}
 };
 // 问答会话只保存在本机；打开资料后可返回同一回答。
 let LiveChat={messages:[],draft:'',scope:'current',includeDemo:false};
