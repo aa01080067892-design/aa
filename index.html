@@ -335,6 +335,25 @@ for(const [i,r] of orbitExamples.entries()){const [category,title,summary,body,a
 function catLabel(id){return categories.find(c=>c.id===id)?.name||'主题'}
 
 const KEY='shiye_v4_workspace';
+// 中文输入法选词期间，保留正在编辑的 DOM 与按键默认行为。
+const TextInput={composing:new Set(),pendingRender:false,searchFrame:null};
+function applySearchInput(input){
+ if(TextInput.searchFrame!==null)cancelAnimationFrame(TextInput.searchFrame);
+ TextInput.searchFrame=requestAnimationFrame(()=>{
+  TextInput.searchFrame=null;
+  if(!input.isConnected||TextInput.composing.has(input))return;
+  const focused=document.activeElement===input,start=input.selectionStart,end=input.selectionEnd,direction=input.selectionDirection;
+  S.q=input.value;S.node=null;S.selected.clear();TextInput.pendingRender=false;render();
+  const next=$('#search');if(focused&&next){next.focus({preventScroll:true});next.setSelectionRange(start,end,direction);}
+ });
+}
+document.addEventListener('compositionstart',e=>{TextInput.composing.add(e.target);},true);
+document.addEventListener('compositionend',e=>{
+ TextInput.composing.delete(e.target);
+ if(e.target.id==='search')applySearchInput(e.target);
+ else if(TextInput.pendingRender&&!TextInput.composing.size){TextInput.pendingRender=false;requestAnimationFrame(()=>render());}
+},true);
+document.addEventListener('keydown',e=>{if(e.isComposing||e.keyCode===229||TextInput.composing.has(e.target))e.stopImmediatePropagation();},true);
 let data,storageOK=true;
 try{const raw=localStorage.getItem(KEY);data=raw?JSON.parse(raw):null;if(data&&(!Array.isArray(data.notes)||!Array.isArray(data.links)||!Array.isArray(data.collection)))data=null}catch(e){storageOK=false}
 if(!data)data={notes:structuredClone(seedNotes),links:structuredClone(seedLinks),collection:[],theme:'day'};
@@ -422,7 +441,7 @@ case 'backup':download('拾页资料备份.json',JSON.stringify(data,null,2),'ap
 case 'help':S.modal='help';openModal('关于这个工作台',`<div class="modalbody helptext"><h3 style="color:var(--ink);font-size:14px;margin-bottom:10px">从一条笔记，到一张有逻辑的地图</h3><p>列表与星系共享搜索条件。列表用于查找单条资料，日历按记录日期定位；星系展示主题归属和有理由的笔记关联。资料围绕分类核心缓慢公转，点击资料拉近，按 Esc 或返回全景退回；可暂停公转，也可使用滚轮与拖动调整视角。</p><p style="margin-top:15px">白天模式默认展示已知笔记与关联。黑夜模式保留笔记，收起详情中的关联等补充内容；选择节点或主动展开后再查看。</p><p style="margin-top:15px">初始资料均为演示示例。你新增的正文会原样保存，初始摘要由正文首句提取，可自行编辑。搜索采用关键词与预设同义线索；整理采用本地规则，未接入在线 AI，也不会自动抓取链接或解析附件。</p><p style="margin-top:15px">小拾是网页内的资料助手，不能跨应用悬浮或后台监控剪贴板。用户主动粘贴、拖入后才会收录；图片与普通文件保留原件，尚未接入 AI、OCR 或网页抓取。角色采用新生成的蓝发鲸鱼娘同人风格插画，非 DeepSeek 官方形象或服务。数据保存在当前浏览器，不同浏览器或文件路径可能使用独立存储。建议定期导出备份。导入备份将替换当前资料，请先导出当前数据。</p><div style="display:flex;gap:10px;margin-top:20px"><button class="btn" data-action="backup">导出备份</button><button class="btn" data-action="import">导入备份</button><button class="btn" data-action="clear-demo">清理演示资料</button></div><input type="file" id="importfile" accept="application/json,.json" hidden></div>`);break;
 case 'import':$('#importfile').click();break;case 'clear-demo':S.deleteIds=data.notes.filter(n=>n.demo).map(n=>n.id);openDelete();break;case 'confirm-delete':snapshot();{const ids=new Set(S.deleteIds);data.notes=data.notes.filter(n=>!ids.has(n.id));data.links=data.links.filter(l=>!ids.has(l.a)&&!ids.has(l.b));data.collection=data.collection.filter(id=>!ids.has(id));S.selected.clear();S.node=null;save();closeModal();render();toast('已移除资料及对应关联。',true)}break;
 }});
-document.addEventListener('input',e=>{if(e.target.id==='search'){S.q=e.target.value;S.node=null;S.selected.clear();const pos=e.target.selectionStart;render();const input=$('#search');input.focus();input.setSelectionRange(pos,pos)}});
+document.addEventListener('input',e=>{if(e.target.id==='search'&&!e.isComposing&&!TextInput.composing.has(e.target))applySearchInput(e.target);});
 document.addEventListener('change',e=>{const el=e.target;if(el.dataset.select){el.checked?S.selected.add(el.dataset.select):S.selected.delete(el.dataset.select);render()}if(el.id==='selectall'){for(const n of filtered())el.checked?S.selected.add(n.id):S.selected.delete(n.id);render()}if(el.id==='sort'){S.sort=el.value;render()}if(el.id==='importfile'){const f=el.files[0];if(!f)return;f.text().then(text=>{try{const next=JSON.parse(text);validateImport(next);snapshot();data=next;data.trash??=[];data.profile??={name:'拾页同学'};if(data.categoryConfig?.length)categories.splice(0,categories.length,...data.categoryConfig);save();closeModal();S.selected.clear();S.node=null;render();toast('已导入备份，可撤销本次替换。',true)}catch(e){toast('备份格式不正确，未改动现有资料。')}})}});
 function validateImport(d){if(!d||!Array.isArray(d.notes)||!Array.isArray(d.links)||!Array.isArray(d.collection)||!['day','night'].includes(d.theme))throw Error('format');const ids=new Set();for(const n of d.notes){if(!n||typeof n.id!=='string'||ids.has(n.id)||!['title','body','summary','source','kind','date'].every(k=>typeof n[k]==='string')||!/^\d{4}-\d{2}-\d{2}$/.test(n.date)||!Array.isArray(n.tags)||!n.tags.every(x=>typeof x==='string')||(n.points&&!Array.isArray(n.points))||(n.category!==null&&!cat(n.category)&&!d.categoryConfig?.some(c=>c.id===n.category)))throw Error('note');ids.add(n.id)}if(d.collection.some(id=>!ids.has(id))||d.links.some(l=>!ids.has(l.a)||!ids.has(l.b)||l.a===l.b||typeof l.type!=='string'||typeof l.reason!=='string'))throw Error('references')}
 document.addEventListener('submit',e=>{if(e.target.id==='noteform'){e.preventDefault();const f=new FormData(e.target);const body=String(f.get('body')||'').trim();if(!body){toast('请先写下正文内容。');return}const existing=note(S.editId);const old=existing?structuredClone(existing):{};const n={...old,id:existing?.id||'n'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),title:String(f.get('title')||'').trim()||body.split(/[\n。！？]/)[0].slice(0,40),body,summary:existing?String(f.get('summary')||'').trim()||body.slice(0,80):body.split(/[\n。！？]/)[0].slice(0,80),source:String(f.get('source')||'').trim()||'个人笔记',date:String(f.get('date')||today()),kind:existing?.kind||'随手记',category:existing?(String(f.get('category')||'')||null):null,tags:parseTags(f.get('tags')),points:existing?.points||[],demo:existing?.demo||false};if(existing)orbitMarkManual(n,existing);snapshot();if(existing)data.notes[data.notes.findIndex(x=>x.id===n.id)]=n;else data.notes.unshift(n);save();closeModal();S.month=n.date.slice(0,7);S.q='';S.date=null;S.category=null;S.selected.clear();S.view='library';render();toast(existing?'笔记修改已保存。':'已保存正文与来源，随时可以搜索找回。',true)}
