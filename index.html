@@ -617,7 +617,7 @@ document.addEventListener('click',e=>{
     case 'choose':$('#ux-attach-menu').hidden=true;$('#ux-capture-files').click();break;
     case 'archive-scope':{const scope=S.category,query=S.q;setView('library');S.category=scope;S.q=query;render();break;}
     case 'data':uxDataDialog();break;
-    case 'help':S.modal='ux-help';openModal('档案使用说明',`<div class="modalbody helptext"><p>资料库的功能现在统一放在「档案」中。你可以按星系、类别、类型、标签和日期找回资料；顶部搜索同时匹配标题、正文和标签。</p><p style="margin-top:16px">勾选资料后，可以加入合辑、批量归类或移至最近删除。详情保留原文、摘要、出处、附件和逻辑关联；合辑可复制或导出。</p><p style="margin-top:16px">加号可收录文字、链接和文件。当前版本在本机保存内容，分类使用本地规则建议；未接入在线 AI、网页抓取或视频解读。分类由你确认，当前星系不会自动切换。</p></div>`);break;
+    case 'help':S.modal='ux-help';openModal('档案使用说明',`<div class="modalbody helptext"><p>资料库的功能现在统一放在「档案」中。你可以按星系、类别、类型、标签和日期找回资料；顶部搜索同时匹配标题、正文和标签。</p><p style="margin-top:16px">勾选资料后，可以加入合辑、批量归类或移至最近删除。详情保留原文、摘要、出处、附件和逻辑关联；合辑可复制或导出。</p><p style="margin-top:16px">加号可收录文字、链接和文件。内容与附件原件保存在当前浏览器。文字收录后自动生成 AI 摘要与标签；待处理中的一键整理使用在线 AI，失败的资料保留待处理。在线附件解析支持 3 MB 内的 PDF、DOCX、TXT、MD、CSV、PNG、JPG、WebP。顶部 AI 可向资料提问。链接仅保存网址，不抓取网页或解读视频。AI 使用本站配置的服务，访客无需填写密钥。</p></div>`);break;
   }
 },true);
 document.addEventListener('input',e=>{if(e.target.id==='ux-capture-text')uxUpdateCapture();});
